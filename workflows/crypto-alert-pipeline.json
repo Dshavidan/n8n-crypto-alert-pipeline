@@ -1,0 +1,312 @@
+{
+  "name": "Crypto Market Alert Pipeline",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1c7d1a49-0b83-4f57-9f32-221fd6edfb64",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -940,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "e60403f5-32cb-482b-9814-5ef94057bf04",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -940,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.coingecko.com/api/v3/simple/price",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ids",
+              "value": "bitcoin,ethereum,solana"
+            },
+            {
+              "name": "vs_currencies",
+              "value": "usd"
+            },
+            {
+              "name": "include_24hr_change",
+              "value": "true"
+            },
+            {
+              "name": "include_last_updated_at",
+              "value": "true"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/json"
+            },
+            {
+              "name": "x-cg-demo-api-key",
+              "value": "={{ $env.COINGECKO_API_KEY || '' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "dbec9d95-e1d5-4d62-b5e4-df68ddbd6082",
+      "name": "Fetch Market Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -700,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const coins = [\n  { id: 'bitcoin', symbol: 'BTC', name: 'Bitcoin', warningAbsPct: 3, criticalAbsPct: 6 },\n  { id: 'ethereum', symbol: 'ETH', name: 'Ethereum', warningAbsPct: 4, criticalAbsPct: 8 },\n  { id: 'solana', symbol: 'SOL', name: 'Solana', warningAbsPct: 5, criticalAbsPct: 10 },\n];\n\nconst currency = 'usd';\nconst response = items[0].json;\nconst checkedAt = new Date().toISOString();\n\nreturn coins.map((coin) => {\n  const record = response[coin.id] || {};\n  const price = record[currency];\n  const change = record[`${currency}_24h_change`];\n\n  if (price === undefined || change === undefined) {\n    return {\n      json: {\n        checked_at: checkedAt,\n        currency,\n        id: coin.id,\n        symbol: coin.symbol,\n        name: coin.name,\n        price: null,\n        change_24h_pct: null,\n        direction: 'unknown',\n        severity: 'warning',\n        alert: true,\n        threshold_hit: null,\n        reason: 'missing_price_or_change',\n      },\n    };\n  }\n\n  const changeValue = Number(change.toFixed(2));\n  const absChange = Math.abs(changeValue);\n  let severity = 'normal';\n  let thresholdHit = null;\n\n  if (absChange >= coin.criticalAbsPct) {\n    severity = 'critical';\n    thresholdHit = coin.criticalAbsPct;\n  } else if (absChange >= coin.warningAbsPct) {\n    severity = 'warning';\n    thresholdHit = coin.warningAbsPct;\n  }\n\n  return {\n    json: {\n      checked_at: checkedAt,\n      currency,\n      id: coin.id,\n      symbol: coin.symbol,\n      name: coin.name,\n      price: Number(Number(price).toFixed(2)),\n      change_24h_pct: changeValue,\n      direction: changeValue >= 0 ? 'up' : 'down',\n      severity,\n      alert: severity !== 'normal',\n      threshold_hit: thresholdHit,\n      source_last_updated_at: record.last_updated_at || null,\n    },\n  };\n});"
+      },
+      "id": "df4fe477-808c-410f-bc44-366af1f6cd20",
+      "name": "Normalize and Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "d804a0c9-23fb-4b4f-9528-134f5cf705d6",
+              "leftValue": "={{ $json.alert }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "934b5b65-9c4a-4732-9869-072a6f5dcddd",
+      "name": "Needs Alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -220,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const severityRank = { normal: 0, warning: 1, critical: 2 };\nconst alerts = items.map((item) => item.json);\nconst highest = alerts.reduce((current, item) => {\n  return severityRank[item.severity] > severityRank[current] ? item.severity : current;\n}, 'normal');\n\nconst lines = alerts.map((item) => {\n  const sign = item.change_24h_pct > 0 ? '+' : '';\n  return `${item.symbol}: ${sign}${item.change_24h_pct}% ${item.direction} at ${item.price} ${item.currency.toUpperCase()} (${item.severity})`;\n});\n\nreturn [\n  {\n    json: {\n      generated_at: new Date().toISOString(),\n      currency: alerts[0]?.currency || 'usd',\n      alert_count: alerts.length,\n      highest_severity: highest,\n      alerts,\n      message: `Crypto market alert: ${alerts.length} asset(s) crossed threshold.\\n${lines.join('\\n')}`,\n    },\n  },\n];"
+      },
+      "id": "6f7f9b7b-2965-4d8e-91cd-d1482340ad21",
+      "name": "Build Alert Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "be6abfef-4655-47be-920e-6bb912251ec5",
+      "name": "Send Alert Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        -100
+      ],
+      "disabled": true,
+      "notes": "Disabled by default. Set ALERT_WEBHOOK_URL in .env, restart Docker, then enable this node."
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map((item) => ({\n  json: {\n    ...item.json,\n    audit_status: 'alert_payload_ready',\n    audit_note: 'Alert payload was built successfully. Enable Send Alert Webhook after configuring ALERT_WEBHOOK_URL.',\n  },\n}));"
+      },
+      "id": "fa2e7b55-87ed-4207-9579-af364c3551e8",
+      "name": "Audit Alert Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      generated_at: new Date().toISOString(),\n      status: 'no_alert',\n      message: 'No configured crypto threshold was crossed in this run.',\n      assets_checked: items.map((item) => ({\n        symbol: item.json.symbol,\n        price: item.json.price,\n        change_24h_pct: item.json.change_24h_pct,\n        severity: item.json.severity,\n      })),\n    },\n  },\n];"
+      },
+      "id": "cc3f3170-6b44-4bfa-9ba7-55267ebc534c",
+      "name": "Audit No Alert Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Portfolio notes:\\n- Schedule and manual trigger are both available.\\n- The webhook node is disabled until a destination URL is configured.\\n- Thresholds are fixed in the code node for import simplicity.",
+        "height": 180,
+        "width": 300
+      },
+      "id": "fd7ee4f8-74a3-47cd-b9f2-74010f7dbf11",
+      "name": "Workflow Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -740,
+        -320
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Market Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Market Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Market Data": {
+      "main": [
+        [
+          {
+            "node": "Normalize and Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize and Score": {
+      "main": [
+        [
+          {
+            "node": "Needs Alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Alert?": {
+      "main": [
+        [
+          {
+            "node": "Build Alert Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Audit No Alert Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alert Payload": {
+      "main": [
+        [
+          {
+            "node": "Audit Alert Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit Alert Payload": {
+      "main": [
+        [
+          {
+            "node": "Send Alert Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6cf5f755-b5e5-45f9-841e-0fb059477ba0",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "crypto-market-alert-pipeline",
+  "tags": [
+    {
+      "name": "portfolio"
+    },
+    {
+      "name": "automation"
+    }
+  ]
+}

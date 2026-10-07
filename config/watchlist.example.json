@@ -1,0 +1,26 @@
+{
+  "currency": "usd",
+  "coins": [
+    {
+      "id": "bitcoin",
+      "symbol": "BTC",
+      "name": "Bitcoin",
+      "warning_abs_pct": 3.0,
+      "critical_abs_pct": 6.0
+    },
+    {
+      "id": "ethereum",
+      "symbol": "ETH",
+      "name": "Ethereum",
+      "warning_abs_pct": 4.0,
+      "critical_abs_pct": 8.0
+    },
+    {
+      "id": "solana",
+      "symbol": "SOL",
+      "name": "Solana",
+      "warning_abs_pct": 5.0,
+      "critical_abs_pct": 10.0
+    }
+  ]
+}

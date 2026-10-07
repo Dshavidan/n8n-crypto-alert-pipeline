@@ -1,0 +1,31 @@
+{
+  "generated_at": "2026-10-07T09:15:00Z",
+  "currency": "usd",
+  "asset_count": 3,
+  "alert_count": 2,
+  "highest_severity": "critical",
+  "alerts": [
+    {
+      "id": "bitcoin",
+      "symbol": "BTC",
+      "name": "Bitcoin",
+      "price": 67234.12,
+      "change_24h_pct": -6.42,
+      "direction": "down",
+      "severity": "critical",
+      "alert": true,
+      "threshold_hit": 6.0
+    },
+    {
+      "id": "ethereum",
+      "symbol": "ETH",
+      "name": "Ethereum",
+      "price": 3880.55,
+      "change_24h_pct": 4.18,
+      "direction": "up",
+      "severity": "warning",
+      "alert": true,
+      "threshold_hit": 4.0
+    }
+  ]
+}
